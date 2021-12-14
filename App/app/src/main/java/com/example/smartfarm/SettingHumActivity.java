@@ -17,6 +17,9 @@ public class SettingHumActivity extends AppCompatActivity {
 
         Intent intent = getIntent();
         int targetHum = intent.getIntExtra("TargetHum", 30);    // 목표 습도
+        int CurrentHum1 = intent.getIntExtra("CurrentHum1",30);   // 현재 습도1
+        int CurrentHum2 = intent.getIntExtra("CurrentHum2",30);   // 현재 습도2
+
         TextView t1, tvTargetH, tvCurH, tvHum;// 습도
         Button btnReturn2, btnHumDown, btnHumUp;
         NumberPicker npcTarHum;
