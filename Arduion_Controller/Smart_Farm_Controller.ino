@@ -1,292 +1,367 @@
+#include <Servo.h>
 #include <Adafruit_ESP8266.h>
-#include <SoftwareSerial.h>
-#include <LiquidCrystal_I2C.h>
-#include <Emotion_Farm.h>
-#include <DHT.h>
 
-//센서 핀 설정
-#define cdsPin A1                   // 조도센서 모듈 핀
-#define DHTPIN 4                    // 온습도센서 모듈 핀 1
-#define DHTPIN2 7                   // 온습도센서 모듈 핀 2
-#define DHTTYPE DHT11               // 온습도 센서타입 설정
-#define soilmoisturePin A0          // 토양수분센서 핀
+#define FANCONTROL_IN_1 22
+#define FANCONTROL_IN_2 24
+#define FANCONTROL_SPEED 7
 
-//와이파이 통신을 위해 객체생성?
-SoftwareSerial mySerial(2,3);
+#define LEFT_WINDOW_PIN 8
+#define RIGHT_WINDOW_PIN 9
 
-//LCD 및 온습도 센서 객체 생성 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
-DHT dht(DHTPIN, DHTTYPE);
-DHT dht2(DHTPIN2, DHTTYPE);
+#define HEATER_PIN 2
+#define LED_PIN 3
+#define PUMP_PIN 4
+#define PUMP_LED_PIN_1 5
+#define PUMP_LED_PIN_2 6
+#define PUMP_LED_PIN_3 7
 
-//와이파이 ID 및 Password 설정
+#define TIMEOUT 10000               // TimeOut 시간 설정
+#define WINDOW_ANGLE_MAX 30         // 개폐기 최대 각도
+#define WINDOW_ANGLE_MIN 10         // 개폐기 최소 각도
+
+Servo leftWindow;
+Servo rightWindow;
+
+// 와이파이 ID 및 Password 설정
 const String ssid = "Pi3-AP";
 const String password = "raspberry";
 
-//서버 IP 설정 및 Port 설정
+// 서버 IP 설정 및 Port 설정
 const String ip = "192.168.1.1";
 const String port = "80";
 
-//토양 %, 온도, 습도 출력을 위한 문자열
-char moist_print[5];
-char temp_print[5];
-char humi_print[5];
-
-//입력된 값 찾기위해 버퍼 선언
-char combuffer[50];
-
-uint8_t beforeTemp = 0;
+//수동 및 자동 제어, 0이면 수동제어, 1이면 자동제어
+// 토양수분, 온도1, 온도2, 습도1, 습도2, 조도,
+// 수동자동, 팬상태, 팬스피드, 왼쪽개폐기, 오른쪽개폐기, 열풍기
+// Receive ALL Data
+const uint8_t sensingDataCount = 6;
+const uint8_t controlDataCount = 6;
+const uint8_t allDataCount = sensingDataCount + controlDataCount;
+String receiveType[allDataCount] = {"grd","tmp1","tmp2","hum1","hum2","lux",
+                                    "getManualControl","getFanState","getFanSpeed",
+                                    "getLeftWindow","getRightWindow","getHeaterState"};
+int16_t receiveValue[allDataCount] = {0,0,0,0,0,0,1,0,0,0,0,0};
+// 개폐기 초기 열림 각도 : 최대값으로 설정
+int8_t leftWindowAngle = WINDOW_ANGLE_MAX;
+int8_t rightWindowAngle = WINDOW_ANGLE_MAX;
 
 //wifi connection
 void connectWifi() {
+  uint8_t connectionStatus;
   
-  //Wifi 초기화
-  Serial.println(F("\r\n---------- AT+RST ----------\r\n"));
-  mySerial.println(F("AT+RST"));
-  serialPrint(1000);
+  while (1){
+    //Wifi 초기화
+    Serial.println(F("\r\n---------- AT+RST ----------\r\n"));
+    Serial3.println(F("AT+RST"));
+    responseSerial("IP");
   
-  //모드 설정(1로 설정)
-  Serial.println(F("\r\n---------- AT+CWMODE ----------\r\n"));
-  mySerial.println(F("AT+CWMODE=1"));
-  serialPrint(500);
-  
-  //wifi 연결
-  Serial.println(F("\r\n---------- AT+CWJAP_DEF ----------\r\n"));
-  mySerial.print(F("AT+CWJAP_DEF=\""));
-  mySerial.print(ssid);
-  mySerial.print(F("\",\""));
-  mySerial.print(password);
-  mySerial.println(F("\""));
-  serialPrint(500);
-
-  //연결된 ip 출력
-  Serial.print(F("\r\n---------- AT+CIFSR ----------\r\n"));
-  mySerial.println(F("AT+CIFSR"));
-  serialPrint(500);
-
-}
-
-//Restart when wifi connection faill
-void connectFailRestart(){
-  int i;
-  int stopAndGo = 1;
-
-  while(stopAndGo){
-    Serial.print(F("\r\n---------- AT+CIPSTATUS ----------\r\n"));
-    mySerial.println(F("AT+CIPSTATUS"));
-    serialPrint(10);
     
-    for(i=0; combuffer[i]!=NULL; i++){
-      if(combuffer[i] == ':') break;
-    }
-    
-    switch(combuffer[i+1]){
-      case '2':
-        Serial.print(F("\r\n---------- case 2 ----------\r\n"));
-        stopAndGo = 0;
-        break;
-      case '3':
-        Serial.print(F("\r\n---------- case 3 ----------\r\n"));
-        mySerial.println(F("AT+CIPCLOSE"));
-        serialPrint(100);
-        break;
-      case '4':
-        Serial.print(F("\r\n---------- case 4 ----------\r\n"));
-        stopAndGo = 0;
-        break;
-      case '5':
-        Serial.print(F("\r\n---------- case 5 ----------\r\n"));
-        connectWifi();
-        break;
-      default:
-        Serial.print(F("\r\n----- default -----\r\n"));
-    }
-  }
-}
+    //모드 설정(1로 설정)
+    Serial.println(F("\r\n---------- AT+CWMODE ----------\r\n"));
+    Serial3.println(F("AT+CWMODE=1"));
+    responseSerial("OK");
 
-//Sensor data send
-void dataSend(String url){
-  int i,j;
-  
-  Serial.print(F("\r\n---------- AT+CIPMUX ----------\r\n"));
-  mySerial.println(F("AT+CIPMUX=0"));
-  serialPrint(50);
+    while(1){
+      //wifi 연결
+      Serial.println(F("\r\n---------- AT+CWJAP_DEF ----------\r\n"));
+      Serial3.print(F("AT+CWJAP_DEF=\""));
+      Serial3.print(ssid);
+      Serial3.print(F("\",\""));
+      Serial3.print(password);
+      Serial3.println(F("\""));
+      responseSerial("OK");
+      
+      //연결된 ip 출력
+      Serial.println(F("\r\n---------- AT+CIFSR ----------\r\n"));
+      Serial3.println(F("AT+CIFSR"));
+      responseSerial("OK");
 
-  Serial.print(F("\r\n---------- AT+CIPSTART ----------\r\n"));
-  mySerial.print(F("AT+CIPSTART=\"TCP\",\""));
-  mySerial.print(ip);
-  mySerial.print(F("\","));
-  mySerial.println(port);
-  serialPrint(50);
-
-  Serial.print(F("\r\n---------- AT+CIPSEND ----------\r\n"));
-  mySerial.print(F("AT+CIPSEND="));
-  mySerial.println(String(url.length()));
-  serialPrint(50);
-
-  for(j=0; combuffer[j]!=NULL; j++){
-    
-  }
-  
-  for(i=0; i<j-1; i++){
-    if(combuffer[i] == 'p'){
-      if(combuffer[i+1] == '.'){
-        connectFailRestart();
-        break;
+      //2 반환시 ip할당 성공, 5 반환시 ip할당 실패로 연결 재시도
+      if(nowStatus() == 5){
+        continue;
+      }
+      else {
+        return;
       }
     }
-   }
-   
-  Serial.print(F("\r\n---------- GET ----------\r\n"));
-  mySerial.println(url);
-  serialPrint(800);
+  }
+}
+// 현재 상태 출력
+uint8_t nowStatus(){
+  uint8_t connectionStatus;
+
+  Serial.println(F("\r\n---------- AT+CIPSTATUS ----------\r\n"));
+  Serial3.println(F("AT+CIPSTATUS"));
+  // 'STATUS:' 가 들어오면 뒤에 숫자 값을 받아 리턴
+  if(Serial3.find("STATUS:")){
+    connectionStatus = Serial3.parseInt();
+  }
+  responseSerial("OK");
+
+  return connectionStatus;
+}
+//Command 값 가져오기
+int16_t returnCommand(){
+  int16_t returnCommand;
   
+  if(Serial3.find('@')){
+    returnCommand = Serial3.parseInt();
+  }
+
+  return returnCommand;
 }
 
-void serialPrint(uint16_t second){
-  int i, j;
 
-  for(i=0; i<second; i++){
-    delay(10);
+//Serial 출력 및 Command 정상으로 들어갔나 확인
+void responseSerial(char* keyword){
+  uint8_t cutChar = 0;
+  uint8_t keywordLength = 0;
+  unsigned long startTime;
+  int i;
 
-    for(j=0; mySerial.available(); j++){
-      combuffer[j] = mySerial.read();
-      Serial.write(combuffer[j]);
+  for(i=0; keyword[i] != NULL; i++){
+    keywordLength++;
+  }
+
+  startTime = millis();
+  while((millis() - startTime) < TIMEOUT){
+    if(Serial3.available()){
+      char ch = Serial3.read();
+      Serial.write(ch);
+
+      if(ch == keyword[cutChar]){
+        cutChar++;
+        if(cutChar == keywordLength){
+          return;
+        }
+      }
+      else {
+        cutChar = 0;
+      }
+    }
+  }
+  return;
+}
+
+void receiveData(String returnType, String url){
+  uint8_t startStop = 1;
+
+  while(1){
+    Serial.print(F("\r\n----- AT+CIPMUX -----\r\n"));
+    Serial3.println(F("AT+CIPMUX=0"));
+    responseSerial("OK");
+
+    while (1){
+      Serial.print(F("\r\n----- AT+CIPSTART -----\r\n"));
+      Serial3.print(F("AT+CIPSTART=\"TCP\",\""));
+      Serial3.print(ip);
+      Serial3.print(F("\","));
+      Serial3.println(port);
+      responseSerial("OK");
+
+      //TCP가 연결 되었으면 while문 break; 아니면 다시 연결 시도
+      if(nowStatus() == 3){
+        break;
+      }
+      else {
+        continue;
+      }
+    }
+  
+    Serial.print(F("\r\n----- AT+CIPSEND -----\r\n"));
+    Serial3.print(F("AT+CIPSEND="));
+    Serial3.println(url.length());
+    responseSerial("OK\r\n>");
+  
+    Serial.print(F("\r\n---------- GET ----------\r\n"));
+    Serial3.println(url);
+    receiveAllData(returnType);
+    responseSerial("CLOSED");
+
+    startStop = nowStatus();
+    //5: ip할당 실패, 2: ip할당 성공했으나, 중간에 끊긴것임으로 함수 종료
+    //3, send 실패 다시 시도, 4 : 정상 send 후 종료
+    if(startStop == 5){
+      return;
+    }
+    else if(startStop == 2) {
+      return;
+    }
+    else if(startStop == 3){
+      continue;
+    }
+    else {
+      break;
+    }
+  }
+}
+// Sensing & Control Data 가져오기
+void receiveAllData(String returnType){
+  int i;
+
+  for(i=0; i<allDataCount; i++){
+    if(returnType == receiveType[i]){
+      receiveValue[i] = returnCommand();
     }
   }
 }
 
-//현재 온습도 상태 표시
-void lcdPrint(uint16_t moist, int8_t temp1, int8_t temp2, uint8_t humi1, uint8_t humi2){
-  
-  //토양 수분 출력
-  lcd.setCursor(1,0);
-  lcd.print("MOIST:");
-  lcd.setCursor(8,0);
-  sprintf(moist_print, "%03d", moist);
-  lcd.print(moist_print);
-  lcd.setCursor(11,0);
-  lcd.print("%");
-
-  //토양습도 값에 따른 LCD에 이모티콘 띄우기
-  if(moist >= 0 && moist < 30){
-    lcd.setCursor(13,0);
-    lcd.write(3);
-    lcd.setCursor(14,0);
-    lcd.write(4);
+// Moter Control
+void moterControl(uint8_t moterStatus, uint8_t in_1, uint8_t in_2){
+  //정방향 작동시 입력값 1, 역방향 -1, 나머지 값 멈춤
+  if(moterStatus == 1){
+    Serial.print(F("\r\n === Moter forward === \r\n "));
+    digitalWrite(in_1, HIGH);
+    digitalWrite(in_2, LOW);
   }
-  else if(moist >= 30 && moist < 70){
-    lcd.setCursor(13,0);
-    lcd.print(" ");
-    lcd.setCursor(14,0);
-    lcd.write(5);
+  else if(moterStatus == -1){
+    Serial.print(F("\r\n === Moter reverse === \r\n "));
+    digitalWrite(in_1, LOW);
+    digitalWrite(in_2, HIGH);
   }
-  else if(moist >= 70){
-    lcd.setCursor(13,0);
-    lcd.write(3);
-    lcd.setCursor(14,0);
-    lcd.write(6);
+  else {
+    Serial.print(F("\r\n === Moter Off === \r\n"));
+    digitalWrite(in_1, LOW);
+    digitalWrite(in_2, LOW);
   }
+}
 
-  //LCD에 온도값 출력
-  lcd.setCursor(1,1);
-  lcd.write(0);
-  sprintf(temp_print, "%02d", temp1);
-  lcd.setCursor(3,1);
-  lcd.print(temp_print);
-  lcd.write(1);
-
-  lcd.setCursor(7,1);
-  lcd.write(0);
-  sprintf(temp_print, "%02d", temp2);
-  lcd.setCursor(9,1);
-  lcd.print(temp_print);
-  lcd.write(1);
-
-  delay(5000);
-  
-  //LCD에 습도값 출력
-  lcd.setCursor(1,1);
-  lcd.write(2);
-  sprintf(humi_print, "%02d", humi1);
-  lcd.setCursor(3,1);
-  lcd.print(humi_print);
-  lcd.print("%");
-  
-  lcd.setCursor(7,1);
-  lcd.write(2);
-  sprintf(humi_print, "%02d", humi2);
-  lcd.setCursor(9,1);
-  lcd.print(humi_print);
-  lcd.print("%");
-
-  delay(5000);
-  
+// LOW 가 on, HIGH가 off
+void relayControl(uint8_t pinNumber,uint8_t relayOnOff){
+  if(relayOnOff == 1){
+    Serial.print(F("\r\n=== Relay On ===\r\n"));
+    digitalWrite(pinNumber, LOW);
+  }
+  else {
+    Serial.print(F("\r\n=== Relay Off ===\r\n"));
+    digitalWrite(pinNumber, HIGH);
+  }
 }
 
 void setup() {
-  // put your setup code here, to run once:
   Serial.begin(9600);
-  mySerial.begin(9600);
+  Serial3.begin(9600);
 
-  Serial.println("----- STRAT -----");
-
-  //LCD 초기화
-  lcd.begin();
+  Serial.println(F("===== START ====="));
 
   //wifi connection
   connectWifi();
- 
-  pinMode(cdsPin, INPUT);                   //조도 센서
-  pinMode(soilmoisturePin, INPUT);          //토양수분센서
 
-  // 라이브러리로 추가한 특수 문자 및 이모티콘 추가
-  lcd.createChar(0, temp);
-  lcd.createChar(1, C);
-  lcd.createChar(2, humi);  
-  lcd.createChar(3, Qmark);
-  lcd.createChar(4, water);
-  lcd.createChar(5, good);
-  lcd.createChar(6, wind);
+  // Servo Moter 핀 설정
+  leftWindow.attach(LEFT_WINDOW_PIN);
+  rightWindow.attach(RIGHT_WINDOW_PIN);
+
+  // Fan Moter 핀 설정
+  pinMode(FANCONTROL_IN_1, OUTPUT);
+  pinMode(FANCONTROL_IN_2, OUTPUT);
+  pinMode(FANCONTROL_SPEED, OUTPUT);
+
+  // Relay 핀 설정
+  pinMode(HEATER_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(PUMP_PIN, OUTPUT);
+  pinMode(PUMP_LED_PIN_1, OUTPUT);
+  pinMode(PUMP_LED_PIN_2, OUTPUT);
+  pinMode(PUMP_LED_PIN_3, OUTPUT);
+
+  // Relay 초기화
+  digitalWrite(HEATER_PIN, HIGH);
+  digitalWrite(LED_PIN, HIGH);
+  digitalWrite(PUMP_PIN, HIGH);
+  digitalWrite(PUMP_LED_PIN_1, HIGH);
+  digitalWrite(PUMP_LED_PIN_2, HIGH);
+  digitalWrite(PUMP_LED_PIN_3, HIGH);
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  uint8_t manualControl;
   
-  //센서값 측정
-  uint16_t cdsValue = analogRead(cdsPin);                                  // 조도센서 값 측정: 0(밝음) ~ 1023(어두움)
-  uint16_t soilmoistureValue = analogRead(soilmoisturePin);                // 토양수분 값 측정: 0(습함) ~ 1023(건조)
-  uint8_t moist_per = map(soilmoistureValue, 170, 1023, 100, 0);             // 센서 값을 퍼센트로 변경
-  //공기 중 습도 값 측정
-  uint8_t humiValue1 = (uint8_t)dht.readHumidity();
-  uint8_t humiValue2 = (uint8_t)dht2.readHumidity();
-  //공기 중 온도 값 측정
-  //unsigned char tmpValue1 = dht.readTemperature();
-  int8_t tempValue1 = (int8_t)dht.readTemperature();
-  int8_t tempValue2 = (int8_t)dht2.readTemperature();
-  // 데이터 전송할 url
+  int i,j;
   String url;
-  int8_t differenceTemp;
 
-  //LCD에 현재 온습도 상태 표시
-  lcdPrint(moist_per, tempValue1, tempValue2, humiValue1, humiValue2);
-
-  //이전 온도값이 지금 온도값이랑 다르다면 서버에 전체 데이터 송부
+  //센싱 값 입력 받기
   ///////////////////////////////////////////////////////////////////////////////
-  differenceTemp = beforeTemp - tempValue1;
-  if(abs(differenceTemp) >= 5){
-    url = "GET /"+String(moist_per)+"/"+tempValue1+"/"+tempValue2+"/"+humiValue1+
-        "/"+humiValue2+"/"+String(cdsValue)+" HTTP/1.1\r\nHost: " + ip +"\r\n\r\n";
-    dataSend(url);
-
-    beforeTemp = tempValue1;
+  for(i=0; i<allDataCount; i++){
+    url = "GET /"+ receiveType[i] +" HTTP/1.1\r\nHost: " + ip +"\r\n\r\n";
+    receiveData(receiveType[i], url);
   }
   ///////////////////////////////////////////////////////////////////////////////
 
-  
-  //Restart when wifi connection faill
-  connectFailRestart();
-  
-//  delay(500);
+  //현재 작동 상태 파악, Manual Mode인지, Auto Mode인지
+  for(i=0; i<allDataCount; i++){
+    if(receiveType[i] == receiveType[sensingDataCount]){
+      manualControl = receiveValue[i];
+    }
+  }
 
+  //수동 제어
+  if(manualControl == 0){
+    uint8_t fanState;
+    uint8_t fanSpeed;
+    uint8_t LeftControl;
+    uint8_t RightControl;
+    uint8_t heater;
+
+    // 제어할 data 및 종료 가져오기
+    for(i=sensingDataCount; i<allDataCount; i++){
+      if(receiveType[i] == receiveType[sensingDataCount+1]){
+        fanState = receiveValue[i];
+      }
+      else if(receiveType[i] == receiveType[sensingDataCount+2]){
+        fanSpeed = receiveValue[i];
+      }
+      else if(receiveType[i] == receiveType[sensingDataCount+3]){
+        LeftControl = receiveValue[i];
+      }
+      else if(receiveType[i] == receiveType[sensingDataCount+4]){
+        RightControl = receiveValue[i];
+      }
+      else if(receiveType[i] == receiveType[sensingDataCount+5]){
+        heater = receiveValue[i];
+      }
+    }
+
+    //Fan Control
+    // 현재 fan이 가동중인데, 앱에서 정지(0)하라는 명령이 들어오면 정지
+    if(digitalRead(FANCONTROL_IN_1) == HIGH && fanState == 0){
+      moterControl(fanState, FANCONTROL_IN_1, FANCONTROL_IN_2);
+    }
+    // 현재 fan이 정지이고, 앱에서 가동(1)하라는 명령이 들어오면 가동
+    else if(digitalRead(FANCONTROL_IN_1) == LOW && fanState == 1){
+      moterControl(fanState, FANCONTROL_IN_1, FANCONTROL_IN_2);
+      digitalWrite(FANCONTROL_SPEED, fanSpeed);   //fanSpeed 설정
+    }
+
+    // Left Window 개폐
+    // 개폐기가 닫혀있거나, 또는 MAX(30)보다 적게 열려있을경우
+    // 최대 각도까지 열어준다
+    if(LeftControl == 1 && leftWindowAngle < WINDOW_ANGLE_MAX){
+      leftWindowAngle = WINDOW_ANGLE_MAX;
+    }
+    else if(LeftControl == 0 && leftWindowAngle > WINDOW_ANGLE_MIN){
+      leftWindowAngle = WINDOW_ANGLE_MIN;
+    }
+    leftWindow.write(leftWindowAngle);
+    
+    //Right Window 개폐
+    if(RightControl == 1 && rightWindowAngle < WINDOW_ANGLE_MAX){
+      rightWindowAngle = WINDOW_ANGLE_MAX;
+    }
+    else if(RightControl == 0 && rightWindowAngle > WINDOW_ANGLE_MIN){
+      rightWindowAngle = WINDOW_ANGLE_MIN;
+    }
+    rightWindow.write(rightWindowAngle);
+
+    //Heater Control On Off
+    if(digitalRead(HEATER_PIN) == HIGH && heater == 0){
+      relayControl(HEATER_PIN, heater);
+    }
+    else if(digitalRead(HEATER_PIN) == LOW && heater == 1){
+      relayControl(HEATER_PIN, heater);
+    }
+  }
+  //자동 제어
+  else if(manualControl == 1){
+    
+  }
 }
