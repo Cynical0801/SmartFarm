@@ -76,6 +76,7 @@ public class SettingHumActivity extends AppCompatActivity {
             }
         });
 
+        // 적용버튼
         btnApply2 = (Button) findViewById(R.id.btnApply2);
         btnApply2.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -85,7 +86,7 @@ public class SettingHumActivity extends AppCompatActivity {
                 new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        ((SettingTemActivity)SettingTemActivity.context_setTem).request(urlSetHum);
+                        ((MainActivity)MainActivity.context_main).request(urlSetHum);
                     }
                 }).start();
             }
