@@ -28,8 +28,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 
 public class MainActivity extends AppCompatActivity {
-    EditText editText;
-    TextView textView, btnTmp, btnHum, btnFan, btnHeat, btnLeftDoor, btnRightDoor;
+    TextView btnTmp, btnHum, btnFan, btnHeat, btnLeftDoor, btnRightDoor;
     ImageView imageView;
     Button button;
     Switch control;
@@ -43,8 +42,8 @@ public class MainActivity extends AppCompatActivity {
     public int curTem1, curTem2, curHum1, curHum2, leftWindow, rightWindow, fanState, heaterState,
             getCurTem1, getCurTem2, getCurHum1, getCurHum2, getLw, getRw, getFs, getHs;
 
-    String urlCtrl = "http://192.168.10.108/setControl/";
-    String urlTrd = "http://192.168.10.108/getState";
+    String urlCtrl = "http://192.168.0.38/setManualControl/";
+    String urlTrd = "http://192.168.0.38/getState";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,10 +53,14 @@ public class MainActivity extends AppCompatActivity {
 
         context_main = this;
 
-        targetTem = 0;
-        targetHum = 0;
+        targetTem = 25;
+        targetHum = 40;
         curTem1 = 0;
         curTem2 = 0;
+
+
+
+
         curHum1 = 0;
         curHum2 = 0;
 
@@ -66,14 +69,6 @@ public class MainActivity extends AppCompatActivity {
         btnTmp.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                /*final String urlStr = "http://192.168.1.1/tmp/36.5"; //editText.getText().toString();
-
-                new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        request(urlStr);
-                    }
-                }).start(); */
                 Intent intent = new Intent(getApplicationContext(), SettingTemActivity.class);
                 intent.putExtra("TargetTem", targetTem);
                 intent.putExtra("CurrentTem1", curTem1);
@@ -87,20 +82,11 @@ public class MainActivity extends AppCompatActivity {
         btnHum.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                /* final String urlStr = "http://192.168.1.1/hum/60"; //editText.getText().toString();
-
-                new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        request(urlStr);
-                    }
-                }).start(); */
-
                 Intent intent = new Intent(getApplicationContext(), SettingHumActivity.class);
                 intent.putExtra("TargetHum", targetHum);
                 intent.putExtra("CurrentHum1", curHum1);
                 intent.putExtra("CurrentHum2", curHum2);
-                startActivityForResult(intent,0);
+                startActivityForResult(intent,1);
             }
         });
 
@@ -109,14 +95,6 @@ public class MainActivity extends AppCompatActivity {
         btnFan.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-               /* final String urlStr = "http://192.168.1.1/grd/30"; //editText.getText().toString();
-
-                new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        request(urlStr);
-                    }
-                }).start(); `*/
                 Intent intent = new Intent(getApplicationContext(), SettingFanActivity.class);
                 startActivity(intent);
             }
@@ -127,14 +105,6 @@ public class MainActivity extends AppCompatActivity {
         btnHeat.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                /* final String urlStr = "http://192.168.1.1/gettmp"; //editText.getText().toString();
-
-                new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        request(urlStr);
-                    }
-                }).start(); */
                 Intent intent = new Intent(getApplicationContext(), SettingHeatActivity.class);
                 startActivity(intent);
             }
@@ -145,14 +115,6 @@ public class MainActivity extends AppCompatActivity {
         btnLeftDoor.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                /*final String urlStr = "http://192.168.1.1/btnLeftDoor"; //editText.getText().toString();
-
-                new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        request(urlStr);
-                    }
-                }).start();*/
                 Intent intent = new Intent(getApplicationContext(), SettingWindowActivity.class);
                 startActivity(intent);
             }
@@ -186,21 +148,32 @@ public class MainActivity extends AppCompatActivity {
                     btnHeat.setClickable(true);
                     btnLeftDoor.setClickable(true);
                     btnRightDoor.setClickable(true);
-                    urlCtrl += "1";
-                    request(urlCtrl);
+                    String urlCtrlN = urlCtrl + "2";
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            request(urlCtrlN);
+                        }
+                    }).start();
                 } else {
                     btnHum.setClickable(false);
                     btnFan.setClickable(false);
                     btnHeat.setClickable(false);
                     btnLeftDoor.setClickable(false);
                     btnRightDoor.setClickable(false);
-                    urlCtrl += "0";
-                    request(urlCtrl);
+                    String urlCtrlN = urlCtrl + "1";
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            request(urlCtrlN);
+                        }
+                    }).start();
                 }
 
             }
         });
 
+        //현재 상태(온습도, 개폐기/팬/열풍기 가동 여부) 갱신용 Thread
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -248,18 +221,18 @@ public class MainActivity extends AppCompatActivity {
                                         @Override
                                         public void run() {
                                             btnLeftDoor.setText("좌측개폐기\n닫힘");
-                                            btnLeftDoor.setBackgroundColor(Color.RED);
                                         }
                                     });
+                                    break;
 
                                 case 1 :
                                     runOnUiThread(new Runnable() {
                                         @Override
                                         public void run() {
                                             btnLeftDoor.setText("좌측개폐기\n열림");
-                                            btnLeftDoor.setBackgroundColor(Color.BLUE);
                                         }
                                     });
+                                    break;
                             }
                             getLw = leftWindow;
                         }
@@ -272,18 +245,18 @@ public class MainActivity extends AppCompatActivity {
                                         @Override
                                         public void run() {
                                             btnRightDoor.setText("우측개폐기\n닫힘");
-                                            btnRightDoor.setBackgroundColor(Color.RED);
                                         }
                                     });
+                                    break;
 
                                 case 1 :
                                     runOnUiThread(new Runnable() {
                                         @Override
                                         public void run() {
                                             btnRightDoor.setText("우측개폐기\n열림");
-                                            btnRightDoor.setBackgroundColor(Color.BLUE);
                                         }
                                     });
+                                    break;
                             }
                             getRw = rightWindow;
                         }
@@ -295,8 +268,7 @@ public class MainActivity extends AppCompatActivity {
                                     runOnUiThread(new Runnable() {
                                         @Override
                                         public void run() {
-                                            btnFan.setText("팬\n정지");
-                                            btnFan.setBackgroundColor(Color.RED);
+                                            btnFan.setText("팬\nOff");
                                         }
                                     });
                                     break;
@@ -304,8 +276,7 @@ public class MainActivity extends AppCompatActivity {
                                     runOnUiThread(new Runnable() {
                                         @Override
                                         public void run() {
-                                            btnFan.setText("팬\n가동");
-                                            btnFan.setBackgroundColor(Color.BLUE);
+                                            btnFan.setText("팬\nOn");
                                         }
                                     });
                                     break;
@@ -319,8 +290,7 @@ public class MainActivity extends AppCompatActivity {
                                     runOnUiThread(new Runnable() {
                                         @Override
                                         public void run() {
-                                            btnHeat.setText("열풍기\n정지");
-                                            btnHeat.setBackgroundColor(Color.RED);
+                                            btnHeat.setText("열풍기\nOff");
                                         }
                                     });
                                     break;
@@ -328,8 +298,7 @@ public class MainActivity extends AppCompatActivity {
                                     runOnUiThread(new Runnable() {
                                         @Override
                                         public void run() {
-                                            btnHeat.setText("열풍기\n가동");
-                                            btnHeat.setBackgroundColor(Color.BLUE);
+                                            btnHeat.setText("열풍기\nOn");
                                         }
                                     });
                                     break;
@@ -346,13 +315,24 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
+    //온습도 설정창 종료시 목표 온습도 값을 메인으로 받아옴
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if(resultCode == RESULT_OK){
-            targetTem = data.getIntExtra("TargetTemp", 0);
+        if(requestCode == 0){
+            if(resultCode == RESULT_OK){
+                targetTem = data.getIntExtra("TargetTemp", 0);
+            }
+        }
+
+        if(requestCode == 1){
+            if(resultCode == RESULT_OK){
+                targetHum = data.getIntExtra("TargetHumi", 0);
+            }
         }
     }
+
+
 
 
     // 서버 요청하기
@@ -390,9 +370,11 @@ public class MainActivity extends AppCompatActivity {
             Log.d("test" , "Error " + ex.getMessage());
             ConnectionState = false;
         }
+        //센서에서 서버로 받아온 데이터를 앱에 표시
         if (ConnectionState == true) {
             String state = output.toString();
             String stateArray[] = state.split("/");
+            Log.d("test", Integer.toString(targetTem));
 
             curTem1 = Integer.parseInt(stateArray[0]);
             curTem2 = Integer.parseInt(stateArray[1]);
@@ -405,6 +387,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // 서버에 입력값을 전달(목표 온습도, 팬, 열풍기 on/off 신호, 개폐기 열고닫기)
     public void request(String urlStr) {
         StringBuilder output = new StringBuilder();
         try {
@@ -431,7 +414,7 @@ public class MainActivity extends AppCompatActivity {
                 conn.disconnect();
             }
         } catch (Exception ex) {
-            Log.d("test" , "목표 온도를 다시 설정해 주세요.\nError: " + ex.getMessage());
+            Log.d("test" , "전달 실패.\nError: " + ex.getMessage());
         }
     }
 }
